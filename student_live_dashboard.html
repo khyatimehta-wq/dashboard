@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Student Performance — Live Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+:root {
+  --bg:        #080b0f;
+  --surface:   #0f1318;
+  --surface2:  #161b22;
+  --border:    #1e252f;
+  --border2:   #2a3340;
+  --accent:    #00d9b8;
+  --accent-dim:rgba(0,217,184,0.12);
+  --amber:     #f5a623;
+  --rose:      #f04f5a;
+  --violet:    #9b8cff;
+  --sky:       #38bdf8;
+  --text:      #dde3ed;
+  --muted:     #5a6778;
+  --muted2:    #3d4d5e;
+  --radius:    6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Subtle grid background ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,217,184,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,217,184,0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.page {
+  position: relative; z-index: 1;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+/* ══════════════════════════════════════════
+   URL BAR
+══════════════════════════════════════════ */
+.url-bar-wrapper {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.url-bar-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+}
+
+.url-bar-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.url-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.url-input::placeholder { color: var(--muted2); }
+.url-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,217,184,0.08); }
+
+.load-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: var(--radius);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 10px 22px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.load-btn:hover { opacity: 0.88; }
+.load-btn:active { transform: scale(0.97); }
+.load-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.url-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.url-hint::before {
+  content: '⚠';
+  color: var(--amber);
+  font-size: 10px;
+}
+
+/* ══════════════════════════════════════════
+   STATUS / SPINNER / ERROR
+══════════════════════════════════════════ */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  margin-top: 8px;
+  min-height: 18px;
+}
+.status-bar.error { color: var(--rose); }
+.status-bar.success { color: var(--accent); }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════ */
+.header {
+  padding: 52px 0 36px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 40px;
+}
+
+.header-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+  opacity: 0.8;
+}
+
+.header h1 {
+  font-size: clamp(30px, 4.5vw, 52px);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: #fff;
+}
+
+.header h1 em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+/* ══════════════════════════════════════════
+   PLACEHOLDER STATE
+══════════════════════════════════════════ */
+#placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px;
+  color: var(--muted);
+  text-align: center;
+  gap: 14px;
+}
+.placeholder-icon {
+  font-size: 48px;
+  opacity: 0.25;
+  line-height: 1;
+}
+.placeholder-text {
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.5;
+}
+
+/* ══════════════════════════════════════════
+   DASHBOARD CONTENT
+══════════════════════════════════════════ */
+#dashboard { display: none; }
+#dashboard.visible { display: block; animation: fadeIn 0.4s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; } }
+
+/* ── Section labels ── */
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Summary cards ── */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 44px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: var(--border2); }
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stat-card:nth-child(1)::after { background: var(--accent); }
+.stat-card:nth-child(2)::after { background: var(--amber); }
+.stat-card:nth-child(3)::after { background: var(--rose); }
+.stat-card:nth-child(4)::after { background: var(--violet); }
+
+.stat-label {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.stat-card:nth-child(1) .stat-value { color: var(--accent); }
+.stat-card:nth-child(2) .stat-value { color: var(--amber); }
+.stat-card:nth-child(3) .stat-value { color: var(--rose); }
+.stat-card:nth-child(4) .stat-value { color: var(--violet); }
+
+.stat-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Insights ── */
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+  margin-bottom: 48px;
+}
+
+.insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 18px;
+  transition: border-color 0.2s;
+}
+.insight-card:hover { border-color: var(--border2); }
+
+.insight-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.45;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+.insight-headline {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.4;
+  margin-bottom: 9px;
+}
+.insight-body {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.75;
+}
+.hi  { color: var(--accent); font-weight: 600; }
+.bad { color: var(--rose);   font-weight: 600; }
+.mid-hi { color: var(--amber); font-weight: 600; }
+
+/* ── Charts ── */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+}
+.chart-card.wide { grid-column: span 2; }
+
+.chart-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 3px;
+}
+.chart-desc {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 18px;
+}
+.chart-wrap {
+  position: relative;
+  height: 270px;
+}
+.chart-wrap.tall { height: 320px; }
+
+/* ══════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════ */
+@media (max-width: 960px) {
+  .summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .charts-grid  { grid-template-columns: 1fr; }
+  .chart-card.wide { grid-column: span 1; }
+}
+@media (max-width: 520px) {
+  .page { padding: 0 14px 60px; }
+  .url-bar-wrapper { padding: 12px 14px; }
+  .url-bar-row { flex-wrap: wrap; }
+  .url-input { font-size: 11px; }
+  .summary-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ STICKY URL BAR ══════════════════════════════════════ -->
+<div class="url-bar-wrapper">
+  <div class="url-bar-inner">
+    <div class="url-bar-row">
+      <input id="urlInput" class="url-input"
+        type="text"
+        placeholder="Paste Google Sheet share URL — e.g. https://docs.google.com/spreadsheets/d/…/edit?usp=sharing"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <button id="loadBtn" class="load-btn" onclick="loadData()">Load Data</button>
+    </div>
+    <div class="url-hint">
+      Sheet must be shared as "Anyone with the link can view" — otherwise the fetch will fail.
+    </div>
+    <div id="statusBar" class="status-bar" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ══ PAGE CONTENT ════════════════════════════════════════ -->
+<div class="page">
+
+  <div class="header">
+    <div class="header-eyebrow">Live · Student Analytics</div>
+    <h1>Performance<br><em>Dashboard</em></h1>
+  </div>
+
+  <!-- Placeholder before first load -->
+  <div id="placeholder">
+    <div class="placeholder-icon">📊</div>
+    <div class="placeholder-text">Paste your Google Sheet URL above and click Load Data</div>
+  </div>
+
+  <!-- Dashboard renders here -->
+  <div id="dashboard">
+
+    <div class="section-label">Key Metrics</div>
+    <div class="summary-grid" id="summaryGrid"></div>
+
+    <div class="section-label">Insights</div>
+    <div class="insights-grid" id="insightsGrid"></div>
+
+    <div class="section-label">Visual Analysis</div>
+    <div class="charts-grid">
+
+      <div class="chart-card">
+        <div class="chart-title">Fail Rate by Course</div>
+        <div class="chart-desc">% of students failing in each subject</div>
+        <div class="chart-wrap"><canvas id="cFailRate"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Avg Final Score by Course</div>
+        <div class="chart-desc">Mean final marks vs mean mid-sem per subject</div>
+        <div class="chart-wrap"><canvas id="cAvgScore"></canvas></div>
+      </div>
+
+      <div class="chart-card wide">
+        <div class="chart-title">Attendance vs Final Score</div>
+        <div class="chart-desc">Each dot = one student · green = pass, red = fail · reveals whether showing up correlates with performance</div>
+        <div class="chart-wrap tall"><canvas id="cScatter"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Mid-Sem vs Final Correlation</div>
+        <div class="chart-desc">Do students who peak mid-semester hold their grade?</div>
+        <div class="chart-wrap"><canvas id="cMidFinal"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Attendance Distribution</div>
+        <div class="chart-desc">How the cohort spreads across attendance buckets</div>
+        <div class="chart-wrap"><canvas id="cAttDist"></canvas></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Chart instance registry ────────────────────────────────
+const CHARTS = {};
+
+function destroyAll() {
+  Object.values(CHARTS).forEach(c => c && c.destroy());
+  Object.keys(CHARTS).forEach(k => delete CHARTS[k]);
+}
+
+// ── Extract spreadsheet ID ─────────────────────────────────
+function extractId(url) {
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+function extractGid(url) {
+  const m = url.match(/[#&?]gid=(\d+)/);
+  return m ? m[1] : '0';
+}
+
+// ── Status helpers ─────────────────────────────────────────
+function setStatus(msg, type='') {
+  const el = document.getElementById('statusBar');
+  el.style.display = 'flex';
+  el.className = 'status-bar ' + type;
+  if (type === 'loading') {
+    el.innerHTML = `<div class="spinner"></div><span>${msg}</span>`;
+  } else {
+    el.textContent = msg;
+  }
+}
+
+function clearStatus() {
+  const el = document.getElementById('statusBar');
+  el.style.display = 'none';
+}
+
+// ── Main loader ────────────────────────────────────────────
+function loadData() {
+  const raw = document.getElementById('urlInput').value.trim();
+  if (!raw) { setStatus('Please paste a Google Sheet URL first.', 'error'); return; }
+
+  const id = extractId(raw);
+  if (!id) {
+    setStatus('Could not extract a spreadsheet ID from that URL. Make sure it\'s a valid Google Sheets link.', 'error');
+    return;
+  }
+
+  const gid = extractGid(raw);
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+
+  document.getElementById('loadBtn').disabled = true;
+  setStatus('Fetching sheet data…', 'loading');
+
+  fetch(csvUrl)
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status} — is the sheet shared as "Anyone with the link can view"?`);
+      return r.text();
+    })
+    .then(csv => {
+      Papa.parse(csv, {
+        header: true,
+        skipEmptyLines: true,
+        complete: result => {
+          if (!result.data || result.data.length === 0) {
+            setStatus('Sheet parsed but no rows found. Check that the correct tab is shared.', 'error');
+            document.getElementById('loadBtn').disabled = false;
+            return;
+          }
+          try {
+            renderDashboard(result.data);
+            const ts = new Date().toLocaleTimeString();
+            setStatus(`Last refreshed: ${ts} · ${result.data.length} rows loaded`, 'success');
+          } catch(e) {
+            setStatus('Data parsed but rendering failed: ' + e.message, 'error');
+            console.error(e);
+          }
+          document.getElementById('loadBtn').disabled = false;
+        },
+        error: err => {
+          setStatus('CSV parse error: ' + err.message, 'error');
+          document.getElementById('loadBtn').disabled = false;
+        }
+      });
+    })
+    .catch(err => {
+      setStatus('Fetch failed: ' + err.message, 'error');
+      document.getElementById('loadBtn').disabled = false;
+    });
+}
+
+// Allow Enter key in input
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadData();
+});
+
+// ── Column name aliases (handles slight header variations) ──
+function col(row, ...names) {
+  for (const n of names) {
+    if (row[n] !== undefined && row[n] !== '') return row[n];
+  }
+  return '';
+}
+
+function num(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+// ── Render ─────────────────────────────────────────────────
+function renderDashboard(rows) {
+  destroyAll();
+  document.getElementById('placeholder').style.display = 'none';
+  const dash = document.getElementById('dashboard');
+  dash.classList.add('visible');
+
+  // Normalise rows
+  const data = rows.map(r => ({
+    id:        col(r, 'Roll_No', 'RollNo', 'roll_no', 'ID'),
+    name:      col(r, 'Name', 'name'),
+    course:    col(r, 'Course', 'course', 'Subject'),
+    att:       num(col(r, 'Attendance_Pct', 'Attendance', 'Att_Pct', 'attendance_pct')),
+    held:      num(col(r, 'Classes_Held', 'Total_Classes', 'classes_held')),
+    attended:  num(col(r, 'Classes_Attended', 'classes_attended')),
+    mid:       num(col(r, 'Mid_Sem', 'MidSem', 'Mid', 'mid_sem')),
+    final:     num(col(r, 'Final', 'Final_Score', 'final')),
+    status:    col(r, 'Status', 'status', 'Result'),
+  }));
+
+  const courses = [...new Set(data.map(d => d.course))].filter(Boolean).sort();
+
+  // Per-course aggregates
+  const bc = {};
+  courses.forEach(c => {
+    const s = data.filter(d => d.course === c);
+    const fails = s.filter(d => d.status.toLowerCase() === 'fail');
+    bc[c] = {
+      students: s, count: s.length,
+      fails: fails.length,
+      failRate: s.length ? (fails.length / s.length * 100) : 0,
+      avgFinal: s.reduce((a,d)=>a+d.final,0) / (s.length||1),
+      avgMid:   s.reduce((a,d)=>a+d.mid,0)   / (s.length||1),
+      avgAtt:   s.reduce((a,d)=>a+d.att,0)   / (s.length||1),
+    };
+  });
+
+  const total     = data.length;
+  const totalFail = data.filter(d => d.status.toLowerCase()==='fail').length;
+  const passRate  = total ? ((total-totalFail)/total*100).toFixed(1) : 0;
+  const avgAtt    = (data.reduce((s,d)=>s+d.att,0)/total).toFixed(1);
+  const avgFinal  = (data.reduce((s,d)=>s+d.final,0)/total).toFixed(1);
+
+  const worstCourse   = courses.reduce((a,b)=>bc[a].failRate > bc[b].failRate ? a : b, courses[0]);
+  const bestCourse    = courses.reduce((a,b)=>bc[a].avgFinal > bc[b].avgFinal ? a : b, courses[0]);
+  const highAttFail   = data.filter(d=>d.att>=75 && d.status.toLowerCase()==='fail');
+  const lowAttPass    = data.filter(d=>d.att<65  && d.status.toLowerCase()==='pass');
+  const midDroppers   = data.filter(d=>(d.mid - d.final) >= 30);
+
+  // ── Summary ──────────────────────────────────────────────
+  document.getElementById('summaryGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total Students</div>
+      <div class="stat-value">${total}</div>
+      <div class="stat-sub">${courses.length} courses</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Pass Rate</div>
+      <div class="stat-value">${passRate}%</div>
+      <div class="stat-sub">${totalFail} failed of ${total}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Attendance</div>
+      <div class="stat-value">${avgAtt}%</div>
+      <div class="stat-sub">across all courses</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Final Score</div>
+      <div class="stat-value">${avgFinal}</div>
+      <div class="stat-sub">out of 100</div>
+    </div>
+  `;
+
+  // ── Insights (dynamic) ────────────────────────────────────
+  const insights = [
+    {
+      n: '01',
+      head: `${worstCourse} has the highest fail rate at ${bc[worstCourse].failRate.toFixed(1)}%.`,
+      body: `<span class="bad">${bc[worstCourse].fails} of ${bc[worstCourse].count}</span> ${worstCourse} students failed — 
+             ${(bc[worstCourse].failRate - (totalFail/total*100)).toFixed(1)}pp above the cohort average of 
+             <span class="hi">${(totalFail/total*100).toFixed(1)}%</span>. 
+             Review assessment difficulty or teaching support for this subject.`
+    },
+    {
+      n: '02',
+      head: `${bestCourse} leads on final scores with an average of ${bc[bestCourse].avgFinal.toFixed(1)}.`,
+      body: `${bestCourse} students averaged <span class="hi">${bc[bestCourse].avgFinal.toFixed(1)}</span> on finals 
+             vs the cohort average of <span class="mid-hi">${avgFinal}</span>. 
+             The course also has a fail rate of only <span class="hi">${bc[bestCourse].failRate.toFixed(1)}%</span>, 
+             suggesting effective teaching or better-prepared students.`
+    },
+    {
+      n: '03',
+      head: `${highAttFail.length} students with ≥75% attendance still failed — attendance ≠ understanding.`,
+      body: `Out of <span class="bad">${highAttFail.length}</span> high-attenders who failed, the average final score was 
+             <span class="bad">${(highAttFail.reduce((s,d)=>s+d.final,0)/(highAttFail.length||1)).toFixed(1)}</span>. 
+             Presence is not enough — these students need targeted academic support, not attendance reminders.`
+    },
+    {
+      n: '04',
+      head: `${midDroppers.length} students dropped 30+ points from mid-sem to finals.`,
+      body: `<span class="bad">${midDroppers.length}</span> students scored dramatically lower in finals than mid-sems. 
+             Average drop: <span class="bad">${(midDroppers.reduce((s,d)=>s+(d.mid-d.final),0)/(midDroppers.length||1)).toFixed(1)} pts</span>. 
+             This signals post-mid-sem disengagement or a sharp spike in final exam difficulty.`
+    },
+    {
+      n: '05',
+      head: `${lowAttPass.length} students with <65% attendance still passed — effort elsewhere compensates.`,
+      body: `<span class="hi">${lowAttPass.length}</span> low-attendance students passed with an average final of 
+             <span class="hi">${(lowAttPass.reduce((s,d)=>s+d.final,0)/(lowAttPass.length||1)).toFixed(1)}</span>. 
+             A blanket attendance-based penalty policy may unfairly disadvantage capable, self-directed learners.`
+    }
+  ].filter((_, i) => {
+    // Hide insight if data is empty / meaningless
+    if (i === 2 && highAttFail.length === 0) return false;
+    if (i === 3 && midDroppers.length   === 0) return false;
+    if (i === 4 && lowAttPass.length    === 0) return false;
+    return true;
+  });
+
+  document.getElementById('insightsGrid').innerHTML = insights.map(ins => `
+    <div class="insight-card">
+      <div class="insight-num">${ins.n}</div>
+      <div class="insight-headline">${ins.head}</div>
+      <div class="insight-body">${ins.body}</div>
+    </div>
+  `).join('');
+
+  // ── Chart palette ─────────────────────────────────────────
+  const palette = [
+    '#00d9b8','#f04f5a','#f5a623','#9b8cff',
+    '#38bdf8','#4ade80','#fb923c','#e879f9'
+  ];
+  const cPalette = courses.map((_,i) => palette[i % palette.length]);
+
+  Chart.defaults.color = '#4a5a6a';
+  Chart.defaults.font.family = "'JetBrains Mono', monospace";
+  Chart.defaults.font.size = 11;
+  const grid = 'rgba(255,255,255,0.04)';
+  const tick = '#3d4d5e';
+
+  // ── Chart 1: Fail Rate ────────────────────────────────────
+  CHARTS.failRate = new Chart(document.getElementById('cFailRate'), {
+    type: 'bar',
+    data: {
+      labels: courses,
+      datasets: [{
+        data: courses.map(c => parseFloat(bc[c].failRate.toFixed(1))),
+        backgroundColor: cPalette,
+        borderRadius: 4,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y}% fail rate` }} },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: tick } },
+        y: { grid: { color: grid }, ticks: { color: tick, callback: v=>v+'%' }, max: 100 }
+      }
+    }
+  });
+
+  // ── Chart 2: Avg Final vs Mid by Course ───────────────────
+  CHARTS.avgScore = new Chart(document.getElementById('cAvgScore'), {
+    type: 'bar',
+    data: {
+      labels: courses,
+      datasets: [
+        {
+          label: 'Avg Mid-Sem',
+          data: courses.map(c => parseFloat(bc[c].avgMid.toFixed(1))),
+          backgroundColor: 'rgba(255,255,255,0.07)',
+          borderRadius: 4,
+          borderSkipped: false,
+        },
+        {
+          label: 'Avg Final',
+          data: courses.map(c => parseFloat(bc[c].avgFinal.toFixed(1))),
+          backgroundColor: cPalette,
+          borderRadius: 4,
+          borderSkipped: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#5a6778', boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}` }}
+      },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: tick } },
+        y: { grid: { color: grid }, ticks: { color: tick }, max: 100 }
+      }
+    }
+  });
+
+  // ── Chart 3: Scatter — Att vs Final ──────────────────────
+  const sPass = data.filter(d=>d.status.toLowerCase()==='pass').map(d=>({x:d.att,y:d.final}));
+  const sFail = data.filter(d=>d.status.toLowerCase()==='fail').map(d=>({x:d.att,y:d.final}));
+
+  CHARTS.scatter = new Chart(document.getElementById('cScatter'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        { label: 'Pass', data: sPass,
+          backgroundColor: 'rgba(0,217,184,0.5)', pointRadius: 5, pointHoverRadius: 7 },
+        { label: 'Fail', data: sFail,
+          backgroundColor: 'rgba(240,79,90,0.75)', pointRadius: 6, pointHoverRadius: 8 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#5a6778', boxWidth: 12, padding: 20 } },
+        tooltip: { callbacks: { label: ctx => ` Att: ${ctx.parsed.x}% | Final: ${ctx.parsed.y}` }}
+      },
+      scales: {
+        x: { title: { display: true, text: 'Attendance %', color: '#4a5a6a' },
+             grid: { color: grid }, ticks: { color: tick }, min: 30, max: 105 },
+        y: { title: { display: true, text: 'Final Score',  color: '#4a5a6a' },
+             grid: { color: grid }, ticks: { color: tick }, min: 0, max: 105 }
+      }
+    }
+  });
+
+  // ── Chart 4: Mid vs Final scatter by course ───────────────
+  CHARTS.midFinal = new Chart(document.getElementById('cMidFinal'), {
+    type: 'scatter',
+    data: {
+      datasets: courses.map((c,i) => ({
+        label: c,
+        data: bc[c].students.map(d=>({x:d.mid,y:d.final})),
+        backgroundColor: cPalette[i],
+        pointRadius: 4, pointHoverRadius: 6,
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#5a6778', boxWidth: 10, padding: 10, font: { size: 10 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} — Mid: ${ctx.parsed.x} | Final: ${ctx.parsed.y}` }}
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mid-Sem Score', color: '#4a5a6a' },
+             grid: { color: grid }, ticks: { color: tick }, min: 0, max: 105 },
+        y: { title: { display: true, text: 'Final Score',   color: '#4a5a6a' },
+             grid: { color: grid }, ticks: { color: tick }, min: 0, max: 105 }
+      }
+    }
+  });
+
+  // ── Chart 5: Attendance distribution histogram ────────────
+  const buckets = ['40–49','50–59','60–69','70–79','80–89','90–100'];
+  const bucketCounts = [0,0,0,0,0,0];
+  data.forEach(d => {
+    if      (d.att < 50) bucketCounts[0]++;
+    else if (d.att < 60) bucketCounts[1]++;
+    else if (d.att < 70) bucketCounts[2]++;
+    else if (d.att < 80) bucketCounts[3]++;
+    else if (d.att < 90) bucketCounts[4]++;
+    else                  bucketCounts[5]++;
+  });
+
+  CHARTS.attDist = new Chart(document.getElementById('cAttDist'), {
+    type: 'bar',
+    data: {
+      labels: buckets,
+      datasets: [{
+        data: bucketCounts,
+        backgroundColor: [
+          'rgba(240,79,90,0.85)', 'rgba(240,79,90,0.65)',
+          'rgba(245,166,35,0.75)', 'rgba(245,166,35,0.85)',
+          'rgba(0,217,184,0.65)', 'rgba(0,217,184,0.9)'
+        ],
+        borderRadius: 4,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} students` }}
+      },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: tick },
+             title: { display: true, text: 'Attendance Range', color: '#4a5a6a' } },
+        y: { grid: { color: grid }, ticks: { color: tick, stepSize: 5 },
+             title: { display: true, text: '# Students', color: '#4a5a6a' } }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
